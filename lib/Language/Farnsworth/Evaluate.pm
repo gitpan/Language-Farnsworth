@@ -6,13 +6,12 @@ use strict;
 use warnings;
 
 use Data::Dumper;
-use Carp;
 
 use Language::Farnsworth::FunctionDispatch;
 use Language::Farnsworth::Variables;
 use Language::Farnsworth::Units;
 use Language::Farnsworth::Parser;
-use Language::Farnsworth::Value;
+use Language::Farnsworth::Value::Types;
 use Language::Farnsworth::Value::Pari;
 use Language::Farnsworth::Value::Date;
 use Language::Farnsworth::Value::String;
@@ -91,7 +90,25 @@ sub eval
 
 	debug 3, Dumper($tree);
 
-    $self->evalbranch($tree);
+    my $ret = eval{$self->evalbranch($tree)};
+    
+    #capture return[] at minimum level
+    if ($@ && $@->isa("Language::Farnsworth::Error")&&$@->isreturn())
+    {
+    	return $@->getmsg();
+    }
+    elsif ($@ && $@->isa("Language::Farnsworth::Error"))
+    {
+    	return $@;
+    }
+    elsif ($@)
+    {
+    	error EPERL, $@;
+    }
+    else
+    {
+    	return $ret;
+    }
 }
 
 #evaluate a single branch
@@ -126,8 +143,9 @@ sub evalbranch
 			my $a = $branch->[0][0]; #grab the function name
 			my $b = $self->makevalue($branch->[1]);
 
-			#print "----------------FUNCCALL! $a\n";
-			#print Dumper($a, $b);
+#			print STDERR "----------------FUNCCALL! $a\n";
+#			print STDERR "$self";
+#			print Dumper($a, $b);
 			
 			if ($self->{funcs}->isfunc($a)) #check if there is a func $a
 			{   #$return = $self->{funcs}->callfunc($self, $name, $args, $branch);
@@ -403,6 +421,18 @@ sub evalbranch
 		$return = $value; #make stores evaluate to the value on the right
 		$self->{vars}->declare($name, $value);
 	}
+	elsif ($type eq "DeclareFunc")
+	{
+		#print Dumper($branch);
+		my $name = $branch->[0];
+		my $lambda = $self->makevalue($branch->[1]);
+
+		#should i allow constants? if i do i'll have to handle them differently, for now it'll be an error
+		error "Right side of function declaration for '$name' did not evaluate to a lambda" unless ($lambda->istype("Lambda"));
+
+		$self->{funcs}->addfunclamb($name, $lambda);
+		$return = $lambda;
+	}	
 	elsif ($type eq "FuncDef")
 	{
 		#print Dumper($branch);
@@ -463,11 +493,11 @@ sub evalbranch
 			my $default = $arg->[1];
 			my $name = $arg->[0]; #name
 
-			if ($reference)
-			{
-				#we've got a reference for lambdas!
-				carp "Passing arguments by reference for lambdas is unsupported at this time";
-			}
+#			if ($reference)
+#			{
+#				#we've got a reference for lambdas!
+#				error "Passing arguments by reference for lambdas is unsupported at this time";
+#			}
 
 			if (defined($default))
 			{
@@ -486,7 +516,7 @@ sub evalbranch
 
 		$return = new Language::Farnsworth::Value::Lambda($scope, $vargs, $code, $branch);
 	}
-	elsif ($type eq "LambdaCall")
+	elsif ($type eq "LambdaCall") #still used in ONE place, sort[] in Standard.pm, i need to get the code to use mult but that's being a pita and i'm done trying to do it at the moment
 	{		
 		my $left = $self->makevalue($branch->[0]);
 		my $right = $self->makevalue($branch->[1]);
@@ -632,9 +662,10 @@ sub evalbranch
 	}
 	elsif ($type eq "SetDisplay")
 	{
+		#TODO make error checking
 		print Dumper($branch);
 		my $combo = $branch->[0][0]; #is a string?
-		my $right = $branch->[1];
+		my $right = $self->makevalue($branch->[1]);
 
 		Language::Farnsworth::Output->setdisplay($combo, $right);
 	}
@@ -682,12 +713,14 @@ sub evalbranch
 
 		if (!$@)
 		{
-			print "\n\nLEFT\n";
-			print Dumper($left);
-			print "RIGHT\n";
-			print Dumper($right);
+			debug 1,"\n\nLEFT\n";
+			debug 1,ref($left);
+			debug 1,"RIGHT\n";
+			debug 1,ref($right);
+			
 			if ($left->conforms($right)) #only do this if they are the same
 			{
+				print "Got Conformity\n";
 				my $dispval = ($left / $right);
 
 				#$return = $left; 
@@ -704,22 +737,28 @@ sub evalbranch
 					$return->{outmagic} = [$dispval];
 				}
 			}
-			elsif ($self->{funcs}->isfunc($branch->[1][0]))
+			elsif ($right->istype("Lambda"))
 			{
-				$left = $left->istype("Array") ? $left : new Language::Farnsworth::Value::Array([$left]);
-				$return = $self->{funcs}->callfunc($self, $branch->[1][0], $left);
-
-				if ($rights->istype("String"))
-				{
-					#right side was a string, use it
-					my $nm = {%$return}; #do a shallow copy!
-					bless $nm, ref($return); #rebless it
-					$return->{outmagic} = [$nm, $rights];
-				}
+				print "Got a lambda";
+				$return = $right * $left; #simple enough, just use the overloaded operator
 			}
+# this code isn't being used is it? fuck i need better docs and tests
+#			elsif ($self->{funcs}->isfunc($branch->[1][0]))
+#			{
+#				$left = $left->istype("Array") ? $left : new Language::Farnsworth::Value::Array([$left]);
+#				$return = $self->{funcs}->callfunc($self, $branch->[1][0], $left);
+#
+#				if ($rights->istype("String"))
+#				{
+#					#right side was a string, use it
+#					my $nm = {%$return}; #do a shallow copy!
+#					bless $nm, ref($return); #rebless it
+#					$return->{outmagic} = [$nm, $rights];
+#				}
+#			}
 			else
 			{
-				error "Conformance error, left side has different units than right side ".Dumper($branch->[1])."\n";
+				error "Conformance error, can't convert from ".($left->type($self))." to ".($right->type($self))."\n";
 			}
 		}
 		else
@@ -785,7 +824,19 @@ sub makevalue
 			return $self->{units}->getunit($name);
 		}
 		
-		die "Undefined symbol '$name'\n";
+		error "Undefined symbol '$name'\n";
+	}
+	elsif (ref($input) eq "GetFunc")
+	{
+		my $name = $input->[0];
+		if ($self->{funcs}->isfunc($name))
+		{
+			return $self->{funcs}->getfunc($name)->{lambda};
+		}
+		else
+		{
+			error "Undefined function '$name'";			
+		}
 	}
 	elsif (ref($input) eq "String") #we've got a string that should be a value!
 	{
@@ -839,3 +890,28 @@ sub makevalue
 }
 
 1;
+__END__
+
+=encoding utf8
+
+=head1 NAME
+
+Language::Farnsworth::Evaluate
+
+=head1 DESCRIPTION
+
+This is an internally used class and has nothing of value to be used by the "public"
+
+=head1 TODO
+
+Clean up some of the code and try to create/document a public interface, since this will be neccesary for creating the plugin interface.
+
+=head1 AUTHOR
+
+Ryan Voots E<lt>simcop@cpan.orgE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2010 by Ryan Voots
+
+This library is free software; It is licensed exclusively under the Artistic License version 2.0 only.

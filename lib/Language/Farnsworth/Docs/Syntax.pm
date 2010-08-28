@@ -1,6 +1,7 @@
 1;
 __END__
-# Below is stub documentation for your module. You'd better edit it!
+
+=encoding utf8
 
 =head1 NAME
 
@@ -63,7 +64,7 @@ Note that single quotes ' are not used for strings, they may eventually be used 
 
 =head4 String Escapes
 
-Language::Farnsworth currently only supports two escapes, this will be rectified in future versions of Language::Farnsworth but was not a priority for the early releases which are intended to just be not much more than a proof of concept
+Language::Farnsworth currently only supports a few escapes, this will be rectified in future versions of Language::Farnsworth but was not a priority for the early releases which are intended to just be not much more than a proof of concept
 
 	\" # to escape a quote inside a string
 	\\ # to escape a backslash inside a string
@@ -109,7 +110,7 @@ You can have any number of elements and they can contain anything that you can s
 
 	NOTE: This section and its syntax is VERY likely to change in future releases
 	NOTE: There is currently a known issue with push[] and arrays where one can cause it to keep from altering the original array, this will be fixed in future versions
-	
+
 You can access elements of arrays with syntax that looks like this
 
 	a = [1,2,3]
@@ -160,10 +161,33 @@ Like most reasonable programming languages Language::Farnsworth has functions, t
 
 =head3 Defining
 
+=head4 New Style Syntax
+
+To define a function you'll want to do something like this
+
+	defun f = {`x` x+x};
+
+First we've got 'B<defun>' this says that we're B<de>fining a B<fun>ction, the name is borrowed from lisp.
+Next we've got 'B<f>' which is the name of the function. After that we've got any expression that evaluates to a lambda.
+You can read about lambdas in more detail below, but here's the basics; We start with B<{`> this is the starting syntax of a lambda.
+Following it are the arguments to the lambda 'B<x>' in this case, we then end the arguements with another 'B<`>'.
+Then we've got the body of the lambda which is just a series of statements that end up return[]ing a result.
+
+Now lets have a look at a slightly more complicated function
+
+	defun max = {`x,y` var z; if (x > y) {z = x} else {z = y}; z}
+
+here we've got a function 'B<max>' that takes two arguments, 'B<x>' and 'B<y>', then we've got something new on the right side, 'B<var z; if (x E<gt> y) {z = x} else {z = y}; z>', if you've programmed before you'll notice that we're separating each expression with a 'B<;>'
+
+the very last expression that gets evaluated, in this case, 'B<z>' is what the function returns if there isn't an explicit call to return[]
+
+=head4 Old Style Syntax
+
+	NOTE: That while this syntax is depreciated it is unlikely to be removed very soon as it does not get in the way of anything in the parser
+
 To define a function you'll want to do something like this
 
 	f{x} := x+x
-	NOTE: This syntax will be depreciated and removed by 1.0.0, the new syntax has not been added to this version
 
 First we've got 'B<f>' which is the name of the function, then we've got this weird little part following it 'B<{x}>' this defines the arguments that the functions takes, in this case its a single argument named 'B<x>', next we've got 'B<:=>' this is the assignment operator for defining a function (it is also used for units, but we'll cover that later) then we've got the expression 'B<x+x>' which is what the function actually does, in this case we're adding the argument to the function to itself
 
@@ -173,7 +197,7 @@ Now lets have a look at a slightly more complicated function
 
 here we've got a function 'B<max>' that takes two arguments, 'B<x>' and 'B<y>', then we've got something new on the right side, 'B<{ var z; if (x E<gt> y) {z = x} else {z = y}; z}>', we've surrounded the expression on the right with ' B<{ }> ', this lets us use multiple statements to build up the function if you've programmed before you'll realize that we're separating each expression with a 'B<;>'
 
-the very last expression that gets evaluated, in this case, 'B<z>' is what the function returns (NOTE: there are plans to add the ability to return at any point in the function but those have not been implemented yet)
+the very last expression that gets evaluated, in this case, 'B<z>' is what the function returns if there isn't an explicit call to return[]
 
 =head3 Calling Functions
 
@@ -212,14 +236,16 @@ Arguments to functions in Language::Farnsworth can have default parameters so th
 They are set when you create the function by setting the arguments equal to the default value
 
 	f{x = 1} := {x * x}
+	defun f={`x = 1` x * x}
 
 =head3 Type Constraints
 
 Arguments can also be told that they have to be of a certain type in order to be given to a function, otherwise an exception is raised and the execution of the code stops
 
-These also are create at the time you define the function
+These also are created at the time you define the function
 
 	f{x isa meter} := {x per 10 seconds}
+	defun f = {`x isa meter` x per 10 seconds}
 
 Currently type constraints have to be some expression that describes the type of input you are expecting, in this case we used "meter" however meter describes a length, and any expression that describes a length can be used as the argument to the function e.g.
 
@@ -229,22 +255,35 @@ is perfectly valid.  There are plans to implement the ability to say something l
 You can combine default arguments and constraints by specifying the default argument first, e.g.
 
 	f{x = 10 cm isa meter} := {x per 10 seconds}
+	defun f = {`x = 10 cm isa meter` x per 10 seconds}
 
 =head3 Variable Number of Arguments
 
 Sometimes you want to be able to take any number of arguments in order to perform some action on many different things, this is possible in Language::Farnsworth.
 You can do this by adding a constraint to the last argument to the function.
 
-	dostuff{x, y isa ...} := {/*something*/};
+	dostuff{x, y isa ...} := {/*something*/}
+	defun dostuff = {`x, y isa ...` /*something*/}
 
 From this example you can see that we use the type constraint 'B<...>'.  What this does is tell Language::Farnsworth to take any additional arguments and place them into an array and pass that array as the variable B<y>.
 Here's an example of what use this can be to do something like recreate the C<map> function from perl.
 
 	map{sub isa {`x`}, x isa ...} := {var e; var out=[]; while(e = shift[x]) {push[out, (e => sub)]}; out};
+	defun map = {`sub isa {`x`}, x isa ...` var e; var out=[]; while(e = shift[x]) {push[out, (e => sub)]}; out};
 	map[{`x` x+1}, 1,2,3];
 
 What we've got here is the first argument B<sub> must be a Lambda (see below for more information on them).  And the second argument swallows up ALL of the other arguments to the function allowing you to take any number of them.
 
+	NOTE: the map actually used in farnsworth is slightly more complex to handle some other edge cases
+
+=head3 Turning functions into lambdas
+
+With the new function changes all functions are now treated the same as lambdas.  This lets us do some neat things.
+This new syntax with 'B<&>' is only temporary until I finish the namespace code and add a proper way for when you want to get the value of a function. 
+
+	defun foo={`x` x ** 2};
+	defun bar=&foo;
+	
 =head2 Units
 
 What are units?
@@ -306,7 +345,7 @@ This allows you to add any prefixes you need to make a calculation simple and ea
 NOTE: bits and bytes use the SI units of 1000 for kilobit, megabit, etc. to get the normal meaning of 1024 instead, use the of prefixes such as kibibit, mebibyte, etc. see http://en.wikipedia.org/wiki/Binary_prefix for more information on them.
 
 =head3 More Advanced Unit Manipulation
- 
+
 You can also define your own basic units like length, time and mass, you do this by syntax like the following 
 
 	name =!= basicunit
@@ -316,7 +355,7 @@ You can also define your own basic units like length, time and mass, you do this
 so lets say we wanted to be able to count pixels as units 
 
 	pixels =!= pixel
-	
+
 and now you've got a basic unit B<pixel> that you can use to define other things like how many pixels are in a VGA screen
 
 	VGA := 640 * 480 pixels
@@ -356,7 +395,7 @@ Also Note: the syntax for them MIGHT change as i begin to learn how to rewrite t
 
 =head3 Defining a Lambda
 
-The basic syntax for defining a lambda is similar to how functions are defined
+The basic syntax for defining a lambda is almost exactly the same as the new syntax for defining functions
 
 	variable = {`arguments` statements};
 	distance = {`x, y` sqrt[x * x + y * y]};
@@ -367,34 +406,32 @@ As you can see here, a lambda is actually stored inside a variable rather than a
 
 Calling a lambda is fairly simple, the syntax looks a lot like the syntax for calling functions or for using units
 
-        lambda[arguments]
+    lambda[arguments]
 	lambda argument
 	lambda * argument
 
-What's going on here is that you are multiplying the lambda by its argument, which is either a single value or an array.  When you do this the lambda gets passed the other item as its argument(s).  This lets lambdas act and look like normal functions while behaving as a variable at the same time.
+What's going on here is that you are multiplying the lambda by its argument, which is either a single value or an array.  When you do this the lambda gets passed the other item as its argument(s).  This lets lambdas act and look like normal functions while behaving as a variable at the same time. The only thing to watch out for here though is that if you do something like
+
+	var mylamb = {`x` x^2};
+	var b = mylamb[10];
+
+It will first try to find a FUNCTION named mylamb before calling your variable. So if you've got a variable you're storing a lambda in named the same as an existing function you'd want to do something like
+
+	var b = mylamb [10]; 
+	var b = (mylamb)[10];
+	var b = mylamb*[10];
+
+I am considering changing this since the lambda would be scoped but it will not be until i have a way to explicitly get/use the function that was already defined.
 
 	argument lambda
 
 This order will also work, but should be used sparingly because it can be confusing.
 
-=head3 Calling Lambdas (Old Syntax)
-
-	Note: This section is entirely depreciated and will be removed in future versions
-
-Calling a lambda is fairly simple, the syntax looks a lot like the syntax for doing unit conversion or calling a function implicitly.
-
-	argument => lambda
-	[arguments] => lambda
-
-This syntax also makes it easy to chain several lambdas up to do multiple calculations and have the order of execution blatantly obvious
-
-	[arguments] => lambda1 => lambda2 => lambda3
-
 =head3 Nesting Lambdas
 
-Since i've mentioned it before and example is necessary of what nesting a lambda really means
+Since i've mentioned it before and an example is necessary of what nesting a lambda really means
 
-	index = ([] => {`` var count=0; {`` count = count + 1}});
+	index = ({`` var count=0; {`` count = count + 1}} []);
 
 What we've got here is a lambda call inside of an expression that returns a lambda.  Since lambdas carry the scopes that they were defined in around with them the lambda that B<index> contains has access to the variable B<count> and since it was defined outside of the nested lambda it does not get reset between calls, allowing it to continue incrementing B<count> over and over.  
 And because B<count> was declared in the first lambda it isn't available to anything outside of that scope, meaning that B<count> cannot be altered by anything other than the lambda that B<index> now contains.
@@ -406,8 +443,8 @@ L<Language::Farnsworth::Value>
 L<Language::Farnsworth::Docs::Syntax> 
 L<Language::Farnsworth::Docs::Functions>
 
-There is also an RT tracker for the module (this may change) setup at
-L<http://farnsworth.sexypenguins.com/>, you can also reach the tracker by sending an email to E<lt>farnsworth.rt@gmail.comE<gt>
+For submitting any bugs please use the one provided by cpan
+L<https://rt.cpan.org/Public/Bug/Report.html?Queue=Language-Farnsworth>.
 
 =head1 AUTHOR
 
@@ -415,11 +452,8 @@ Ryan Voots E<lt>simcop@cpan.orgE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2008 by Ryan Voots
+Copyright (C) 2010 by Ryan Voots
 
-This library is free software; you can redistribute it and/or modify
-it under the same terms as Perl itself, either Perl version 5.8.0 or,
-at your option, any later version of Perl 5 you may have available.
-
+This library is free software; It is licensed exclusively under the Artistic License version 2.0 only.
 
 =cut
